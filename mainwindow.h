@@ -31,6 +31,9 @@ private:
     void createDNSPodPage();
     void createDuckDNSPage();
     void setupIPAddressDisplay();
+    void loadConfig();
+    void loadProviderConfig(const QString &provider);
+    QString getConfigFilePath();
 
     QComboBox *providerCombo;
     QStackedWidget *stackedWidget;

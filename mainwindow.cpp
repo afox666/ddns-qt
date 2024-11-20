@@ -9,6 +9,10 @@
 #include <QNetworkReply>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSettings>
+#include <QStandardPaths>
+#include <QDir>
+#include <QMessageBox>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -58,6 +62,8 @@ MainWindow::MainWindow(QWidget *parent)
     mainLayout->addWidget(saveButton);
     mainLayout->addStretch();
 
+    loadConfig();
+
     // 初始更新IP地址
     updateIPAddresses();
 
@@ -65,6 +71,77 @@ MainWindow::MainWindow(QWidget *parent)
     ipUpdateTimer = new QTimer(this);
     connect(ipUpdateTimer, &QTimer::timeout, this, &MainWindow::updateIPAddresses);
     ipUpdateTimer->start(300000); // 5分钟 = 300000毫秒
+}
+
+QString MainWindow::getConfigFilePath()
+{
+    QString configPath = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+    QDir dir(configPath);
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+    return configPath + "/config.json";
+}
+
+void MainWindow::loadConfig()
+{
+    QFile file(getConfigFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        qDebug() << "Could not open config file for reading";
+        return;
+    }
+
+    QByteArray data = file.readAll();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (doc.isNull()) {
+        qDebug() << "Failed to parse config file";
+        return;
+    }
+
+    QJsonObject config = doc.object();
+
+    // 加载上次选择的提供商
+    QString lastProvider = config["last_provider"].toString();
+    int index = providerCombo->findText(lastProvider);
+    if (index >= 0) {
+        providerCombo->setCurrentIndex(index);
+    }
+
+    // 加载各提供商的配置
+    if (config.contains("providers")) {
+        QJsonObject providers = config["providers"].toObject();
+
+        // Cloudflare
+        if (providers.contains("Cloudflare")) {
+            QJsonObject cf = providers["Cloudflare"].toObject();
+            cfEmail->setText(cf["email"].toString());
+            cfApiKey->setText(cf["api_key"].toString());
+            cfZoneId->setText(cf["zone_id"].toString());
+            cfDomain->setText(cf["domain"].toString());
+        }
+
+        // Aliyun
+        if (providers.contains("Aliyun")) {
+            QJsonObject aliyun = providers["Aliyun"].toObject();
+            aliyunAccessKey->setText(aliyun["access_key"].toString());
+            aliyunSecretKey->setText(aliyun["secret_key"].toString());
+            aliyunDomain->setText(aliyun["domain"].toString());
+        }
+
+        // DNSPod
+        if (providers.contains("DNSPod")) {
+            QJsonObject dnspod = providers["DNSPod"].toObject();
+            dnspodToken->setText(dnspod["token"].toString());
+            dnspodDomain->setText(dnspod["domain"].toString());
+        }
+
+        // DuckDNS
+        if (providers.contains("DuckDNS")) {
+            QJsonObject duckdns = providers["DuckDNS"].toObject();
+            duckdnsToken->setText(duckdns["token"].toString());
+            duckdnsDomain->setText(duckdns["domain"].toString());
+        }
+    }
 }
 
 void MainWindow::setupIPAddressDisplay()
@@ -204,29 +281,50 @@ void MainWindow::onProviderChanged(int index)
 
 void MainWindow::saveConfig()
 {
-    QString provider = providerCombo->currentText();
-    QMap<QString, QString> config;
+    QJsonObject config;
+    QJsonObject providers;
 
-    if (provider == "Cloudflare") {
-        config["email"] = cfEmail->text();
-        config["api_key"] = cfApiKey->text();
-        config["zone_id"] = cfZoneId->text();
-        config["domain"] = cfDomain->text();
-    }
-    else if (provider == "Aliyun") {
-        config["access_key"] = aliyunAccessKey->text();
-        config["secret_key"] = aliyunSecretKey->text();
-        config["domain"] = aliyunDomain->text();
-    }
-    else if (provider == "DNSPod") {
-        config["token"] = dnspodToken->text();
-        config["domain"] = dnspodDomain->text();
-    }
-    else if (provider == "DuckDNS") {
-        config["token"] = duckdnsToken->text();
-        config["domain"] = duckdnsDomain->text();
+    // 保存当前选择的提供商
+    config["last_provider"] = providerCombo->currentText();
+
+    // Cloudflare配置
+    QJsonObject cloudflare;
+    cloudflare["email"] = cfEmail->text();
+    cloudflare["api_key"] = cfApiKey->text();
+    cloudflare["zone_id"] = cfZoneId->text();
+    cloudflare["domain"] = cfDomain->text();
+    providers["Cloudflare"] = cloudflare;
+
+    // Aliyun配置
+    QJsonObject aliyun;
+    aliyun["access_key"] = aliyunAccessKey->text();
+    aliyun["secret_key"] = aliyunSecretKey->text();
+    aliyun["domain"] = aliyunDomain->text();
+    providers["Aliyun"] = aliyun;
+
+    // DNSPod配置
+    QJsonObject dnspod;
+    dnspod["token"] = dnspodToken->text();
+    dnspod["domain"] = dnspodDomain->text();
+    providers["DNSPod"] = dnspod;
+
+    // DuckDNS配置
+    QJsonObject duckdns;
+    duckdns["token"] = duckdnsToken->text();
+    duckdns["domain"] = duckdnsDomain->text();
+    providers["DuckDNS"] = duckdns;
+
+    config["providers"] = providers;
+
+    // 保存到文件
+    QJsonDocument doc(config);
+    QFile file(getConfigFilePath());
+    if (!file.open(QIODevice::WriteOnly)) {
+        QMessageBox::warning(this, "Error", "Could not save configuration file.");
+        return;
     }
 
-    qDebug() << "Saving configuration for" << provider;
-    qDebug() << config;
+    file.write(doc.toJson());
+    QMessageBox::information(this, "Success", "Configuration saved successfully.");
 }
+
