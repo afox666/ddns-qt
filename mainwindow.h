@@ -15,6 +15,9 @@
 #include <QHostAddress>
 #include <QVBoxLayout>
 
+#include "cloudflare.h"
+#include "networkwidget.h"
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -38,22 +41,22 @@ private:
     void createAliyunPage();
     void createDNSPodPage();
     void createDuckDNSPage();
+
+    void onRefreshClicked();
+    void setupControlGroup(QVBoxLayout *mainLayout);
     void setupIPAddressDisplay(QVBoxLayout *mainLayout);
+
     void loadConfig();
     void loadProviderConfig(const QString &provider);
     QString getConfigFilePath();
 
-
-    QAbstractSocket::NetworkLayerProtocol getIpType(const QString &ip);
-    void searchCloudflareRecordId(const QString &record, const QString &apiKey, const QString &zoneId,
-                                  const QString &domain, QJsonObject &recordInfo);
-    void updateCloudflareDns(const QString &apiKey, const QString &zoneId, const QString &recordId, const QJsonObject &data);
-    void updateCloudflare(const QString &ipv4, const QString &ipv6);
-    void handleCloudflareReply(QNetworkReply *reply, bool isIPv4);
-
     void updateAliyun(const QString &ipv4, const QString &ipv6);
     void updateDNSPod(const QString &ipv4, const QString &ipv6);
     void updateDuckDNS(const QString &ipv4, const QString &ipv6);
+
+    NetworkWidget *networkWidget;
+
+    std::shared_ptr<Cloudflare> cloudflare_;
 
     QComboBox *providerCombo;
     QStackedWidget *stackedWidget;

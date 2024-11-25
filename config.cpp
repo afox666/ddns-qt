@@ -34,7 +34,7 @@ void Config::loadConfig()
     QJsonObject config = doc.object();
 
     // 加载上次选择的提供商
-    QString lastProvider = config["last_provider"].toString();
+    lastProvider = config["last_provider"].toString();
     int index = providerCombo->findText(lastProvider);
     if (index >= 0) {
         providerCombo->setCurrentIndex(index);
@@ -46,32 +46,32 @@ void Config::loadConfig()
 
         // Cloudflare
         if (providers.contains("Cloudflare")) {
-            QJsonObject cf = providers["Cloudflare"].toObject();
-            cfApiKey->setText(cf["api_key"].toString());
-            cfZoneId->setText(cf["zone_id"].toString());
-            cfDomain->setText(cf["domain"].toString());
+            provide_config = providers["Cloudflare"].toObject();
+            // cfApiKey->setText(cf["api_key"].toString());
+            // cfZoneId->setText(cf["zone_id"].toString());
+            // cfDomain->setText(cf["domain"].toString());
         }
 
         // Aliyun
         if (providers.contains("Aliyun")) {
-            QJsonObject aliyun = providers["Aliyun"].toObject();
-            aliyunAccessKey->setText(aliyun["access_key"].toString());
-            aliyunSecretKey->setText(aliyun["secret_key"].toString());
-            aliyunDomain->setText(aliyun["domain"].toString());
+            provide_config = providers["Aliyun"].toObject();
+            // aliyunAccessKey->setText(aliyun["access_key"].toString());
+            // aliyunSecretKey->setText(aliyun["secret_key"].toString());
+            // aliyunDomain->setText(aliyun["domain"].toString());
         }
 
         // DNSPod
         if (providers.contains("DNSPod")) {
-            QJsonObject dnspod = providers["DNSPod"].toObject();
-            dnspodToken->setText(dnspod["token"].toString());
-            dnspodDomain->setText(dnspod["domain"].toString());
+            provide_config = providers["DNSPod"].toObject();
+            // dnspodToken->setText(dnspod["token"].toString());
+            // dnspodDomain->setText(dnspod["domain"].toString());
         }
 
         // DuckDNS
         if (providers.contains("DuckDNS")) {
-            QJsonObject duckdns = providers["DuckDNS"].toObject();
-            duckdnsToken->setText(duckdns["token"].toString());
-            duckdnsDomain->setText(duckdns["domain"].toString());
+            provide_config = providers["DuckDNS"].toObject();
+            // duckdnsToken->setText(duckdns["token"].toString());
+            // duckdnsDomain->setText(duckdns["domain"].toString());
         }
     }
 }

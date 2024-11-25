@@ -20,6 +20,7 @@
 #include <QGroupBox>
 #include <QRegExp>
 #include <QJsonArray>
+#include <QNetworkInterface>
 
 MainWindow::~MainWindow() {}
 
@@ -37,6 +38,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 创建主布局
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
 
+    setupControlGroup(mainLayout);
     // 设置IP地址显示
     setupIPAddressDisplay(mainLayout);
 
@@ -81,27 +83,10 @@ MainWindow::MainWindow(QWidget *parent)
     createDNSPodPage();
     createDuckDNSPage();
 
-    // 创建DDNS按钮
-    ddnsButton = new QPushButton("Start DDNS", this);
-    connect(ddnsButton, &QPushButton::clicked, this, &MainWindow::toggleDDNS);
-    // 创建DDNS更新定时器
-    ddnsTimer = new QTimer(this);
-    connect(ddnsTimer, &QTimer::timeout, this, &MainWindow::updateDNS);
-
-    // 创建保存按钮
-    QPushButton *saveButton = new QPushButton("Save Configuration", this);
-    connect(saveButton, &QPushButton::clicked, this, &MainWindow::saveConfig);
-
-    // 在保存按钮之后添加DDNS按钮
-    QHBoxLayout *buttonLayout = new QHBoxLayout();
-    buttonLayout->addWidget(saveButton);
-    buttonLayout->addWidget(ddnsButton);
-
     // 添加所有部件到主布局
     mainLayout->addLayout(providerLayout);
     mainLayout->addWidget(stackedWidget);
     mainLayout->addStretch();
-    mainLayout->addLayout(buttonLayout);
 
     loadConfig();
 
@@ -184,6 +169,46 @@ void MainWindow::loadConfig()
     }
 }
 
+void MainWindow::onRefreshClicked()
+{
+    updateIPAddresses();
+}
+
+void MainWindow::setupControlGroup(QVBoxLayout *mainLayout)
+{
+    // 创建顶部控制区域
+    QGroupBox *controlGroup = new QGroupBox("Control Panel", this);
+    QHBoxLayout *controlLayout = new QHBoxLayout(controlGroup);
+
+    // 添加控制按钮
+    QPushButton *refreshBtn = new QPushButton("Refresh IP", this);
+    // 连接信号槽
+    connect(refreshBtn, &QPushButton::clicked, this, &MainWindow::onRefreshClicked);
+
+    // 创建DDNS按钮
+    ddnsButton = new QPushButton("Start DDNS", this);
+    connect(ddnsButton, &QPushButton::clicked, this, &MainWindow::toggleDDNS);
+    // 创建DDNS更新定时器
+    ddnsTimer = new QTimer(this);
+    connect(ddnsTimer, &QTimer::timeout, this, &MainWindow::updateDNS);
+
+    // 创建保存按钮
+    QPushButton *saveButton = new QPushButton("Save Configuration", this);
+    connect(saveButton, &QPushButton::clicked, this, &MainWindow::saveConfig);
+
+    // 在保存按钮之后添加DDNS按钮
+    QHBoxLayout *buttonLayout = new QHBoxLayout();
+    buttonLayout->addWidget(saveButton);
+    buttonLayout->addWidget(ddnsButton);
+
+    controlLayout->addWidget(refreshBtn);
+    controlLayout->addLayout(buttonLayout);
+    controlLayout->addStretch(); // 添加弹簧，使按钮靠左对齐
+
+    // 将分组添加到主布局
+    mainLayout->addWidget(controlGroup);
+}
+
 void MainWindow::setupIPAddressDisplay(QVBoxLayout *mainLayout)
 {
     QGroupBox *ipGroup = new QGroupBox("Current IP Addresses", this);
@@ -219,6 +244,11 @@ void MainWindow::setupIPAddressDisplay(QVBoxLayout *mainLayout)
 
 void MainWindow::updateIPAddresses()
 {
+    qDebug() << "update ip address";
+
+    ipv4Label->setText("...");
+    ipv6Label->setText("...");
+
     // 获取IPv4地址
     QNetworkRequest requestv4(QUrl("https://api.ipify.org?format=json"));
     QNetworkReply *replyv4 = networkManager->get(requestv4);
@@ -227,7 +257,7 @@ void MainWindow::updateIPAddresses()
     });
 
     // 获取IPv6地址
-    QNetworkRequest requestv6(QUrl("https://api64.ipify.org?format=json"));
+    QNetworkRequest requestv6(QUrl("https://api6.ipify.org?format=json"));
     QNetworkReply *replyv6 = networkManager->get(requestv6);
     connect(replyv6, &QNetworkReply::finished, [this, replyv6]() {
         handleIPv6Reply(replyv6);
@@ -290,6 +320,8 @@ void MainWindow::toggleDDNS()
             return;
         }
 
+        saveConfig();
+
         // 开始DDNS服务
         ddnsRunning = true;
         ddnsButton->setText("Stop DDNS");
@@ -338,7 +370,8 @@ void MainWindow::updateDNS()
     // 执行DDNS更新
     QString provider = providerCombo->currentText();
     if (provider == "Cloudflare") {
-        updateCloudflare(ipv4, ipv6);
+        cloudflare_ = std::make_shared<Cloudflare>(networkManager);
+        cloudflare_->updateCloudflare(cfApiKey, cfZoneId, cfDomain, ipv4, ipv6, ipv4RecordName, ipv6RecordName);
     } else if (provider == "Aliyun") {
         updateAliyun(ipv4, ipv6);
     } else if (provider == "DNSPod") {
@@ -346,188 +379,6 @@ void MainWindow::updateDNS()
     } else if (provider == "DuckDNS") {
         updateDuckDNS(ipv4, ipv6);
     }
-}
-
-
-void MainWindow::searchCloudflareRecordId(const QString &record, const QString &apiKey, const QString &zoneId,
-                                          const QString &domain, QJsonObject &recordInfo)
-{
-    QString name = record + "." + domain;
-    qDebug() << name;
-    QNetworkRequest request(QUrl(QString("https://api.cloudflare.com/client/v4/zones/%1/dns_records?name=%2")
-                                     .arg(zoneId)
-                                     .arg(name)));
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    request.setRawHeader("Authorization", apiKey.toUtf8());
-    QNetworkReply *reply = networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, [this, reply, &recordInfo]() {
-        if (reply->error() != QNetworkReply::NoError) {
-            QMessageBox::warning(this, "DDNS Update Error",
-                                 QString("search record id error: ")
-                                     .arg(reply->errorString()));
-            reply->deleteLater();
-            return;
-        }
-
-        QJsonDocument jsonDoc = QJsonDocument::fromJson(reply->readAll());
-        QJsonObject jsonObj = jsonDoc.object();
-
-        if (!jsonObj["success"].toBool()) {
-            QString errorMsg = jsonObj["errors"].toArray().first().toObject()["message"].toString();
-            QMessageBox::warning(this, "DDNS Update Error",
-                                 QString("search record id error: ")
-                                     .arg(errorMsg));
-            reply->deleteLater();
-            return;
-
-        }
-
-        QJsonArray result = jsonObj["result"].toArray();
-        if(result.size() != 1) {
-            QMessageBox::warning(this, "DDNS Update Error",
-                                 QString("record id num not equal 1 "));
-            return;
-        }
-
-        recordInfo = result[0].toObject();
-        reply->deleteLater();
-    });
-}
-
-QAbstractSocket::NetworkLayerProtocol MainWindow::getIpType(const QString &ip)
-{
-    QHostAddress address(ip);
-    return address.protocol();
-}
-
-void MainWindow::updateCloudflareDns(const QString &apiKey, const QString &zoneId, const QString &recordId, const QJsonObject &data)
-{
-    QNetworkRequest request(QUrl(QString("https://api.cloudflare.com/client/v4/zones/%1/dns_records").arg(zoneId)));
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    request.setRawHeader("Authorization", apiKey.toUtf8());
-
-    QJsonDocument jsonDoc(data);
-    QByteArray jsonData = jsonDoc.toJson();
-
-    QAbstractSocket::NetworkLayerProtocol protocol = getIpType(data["content"].toString());
-
-    bool isIpv4 = false;
-    if(protocol == QAbstractSocket::NetworkLayerProtocol::IPv4Protocol) {
-        isIpv4 = true;
-    } else if(protocol == QAbstractSocket::NetworkLayerProtocol::IPv6Protocol) {
-        isIpv4 = false;
-    } else {
-        QMessageBox::warning(this, "DDNS Update Error",
-                             QString("ip address is error"));
-        return ;
-    }
-
-    if (recordId.isEmpty()) {
-        // 创建新记录
-        QNetworkReply *reply = networkManager->post(request, jsonData);
-        connect(reply, &QNetworkReply::finished, [this, reply, isIpv4]() {
-            handleCloudflareReply(reply, isIpv4);
-        });
-    } else {
-        // 更新现有记录
-        QUrl updateUrl(QString("https://api.cloudflare.com/client/v4/zones/%1/dns_records/%2")
-                           .arg(zoneId).arg(recordId));
-        QNetworkRequest updateRequest(updateUrl);
-        updateRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-        request.setRawHeader("Authorization", apiKey.toUtf8());
-
-        QNetworkReply *reply = networkManager->put(updateRequest, jsonData);
-        connect(reply, &QNetworkReply::finished, [this, reply, isIpv4]() {
-            handleCloudflareReply(reply, isIpv4);
-        });
-    }
-}
-
-void MainWindow::updateCloudflare(const QString &ipv4, const QString &ipv6)
-{
-    // 获取配置
-    QString apiKey = "Bearer " + cfApiKey->text();
-    QString zoneId = cfZoneId->text();
-    QString domain = cfDomain->text();
-    QString ipv4Record = ipv4RecordName->text();
-    QString ipv6Record = ipv6RecordName->text();
-
-    // 检查记录名称
-    if (!ipv4.isEmpty() && ipv4RecordName->text().isEmpty()) {
-        QMessageBox::warning(this, "Configuration Error", "Please specify IPv4 record name");
-        return;
-    }
-    if (!ipv6.isEmpty() && ipv6RecordName->text().isEmpty()) {
-        QMessageBox::warning(this, "Configuration Error", "Please specify IPv6 record name");
-        return;
-    }
-
-    // 更新IPv4记录
-    if (!ipv4.isEmpty()) {
-        QJsonObject data;
-        data["type"] = "A";
-        data["name"] = ipv4Record + "." + domain;
-        data["content"] = ipv4;
-        data["proxied"] = false;
-
-        QJsonObject recordInfo;
-        searchCloudflareRecordId(ipv4Record, apiKey, zoneId, domain, recordInfo);
-        ipv4RecordId = recordInfo["id"].toString();
-
-        updateCloudflareDns(apiKey, zoneId, ipv4RecordId, data);
-    }
-
-    // 更新IPv6记录
-    if (!ipv6.isEmpty()) {
-        QJsonObject data;
-        data["type"] = "AAAA";
-        data["name"] = ipv6Record + "." + domain;
-        data["content"] = ipv6;
-        data["proxied"] = false;
-
-        QJsonObject recordInfo;
-        searchCloudflareRecordId(ipv6Record, apiKey, zoneId, domain, recordInfo);
-        ipv6RecordId = recordInfo["id"].toString();
-
-        updateCloudflareDns(apiKey, zoneId, ipv6RecordId, data);
-    }
-}
-
-void MainWindow::handleCloudflareReply(QNetworkReply *reply, bool isIPv4)
-{
-    if (reply->error() == QNetworkReply::NoError) {
-        QJsonDocument jsonDoc = QJsonDocument::fromJson(reply->readAll());
-        QJsonObject jsonObj = jsonDoc.object();
-
-        if (jsonObj["success"].toBool()) {
-            QJsonObject result = jsonObj["result"].toObject();
-            QString recordId = result["id"].toString();
-
-            if (isIPv4) {
-                ipv4RecordId = recordId;
-                qDebug() << "Updated IPv4 record ID:" << recordId;
-            } else {
-                ipv6RecordId = recordId;
-                qDebug() << "Updated IPv6 record ID:" << recordId;
-            }
-
-            QString recordType = isIPv4 ? "IPv4 (A)" : "IPv6 (AAAA)";
-            QMessageBox::information(this, "DDNS Update Success",
-                                     recordType + " record updated successfully");
-        } else {
-            QString errorMsg = jsonObj["errors"].toString();
-            QMessageBox::warning(this, "DDNS Update Error",
-                                 QString("%1 record update failed: %2")
-                                     .arg(isIPv4 ? "IPv4" : "IPv6")
-                                     .arg(errorMsg));
-        }
-    } else {
-        QMessageBox::warning(this, "DDNS Update Error",
-                             QString("%1 record update failed: %2")
-                                 .arg(isIPv4 ? "IPv4" : "IPv6")
-                                 .arg(reply->errorString()));
-    }
-    reply->deleteLater();
 }
 
 void MainWindow::updateAliyun(const QString &ipv4, const QString &ipv6)

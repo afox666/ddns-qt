@@ -3,6 +3,7 @@
 
 #include <QString>
 #include <QComboBox>
+#include <QJsonObject>
 
 class Config
 {
@@ -13,6 +14,11 @@ public:
     void saveConfig();
 
     void setProvider(QComboBox *providerCombo);
+
+public:
+    QComboBox *providerCombo;
+    QJsonObject provide_config;
+    QString lastProvider;
 };
 
 #endif // CONFIG_H
