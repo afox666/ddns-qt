@@ -4,7 +4,13 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
-Config::Config() {}
+int Config::init()
+{
+    if(!getConfig(config_)) {
+        return -1;
+    }
+    return 0;
+}
 
 QString Config::getConfigFilePath()
 {
@@ -16,62 +22,69 @@ QString Config::getConfigFilePath()
     return configPath + "/config.json";
 }
 
-void Config::loadConfig()
+bool Config::getConfig(QJsonObject& config)
 {
-    QFile file(getConfigFilePath());
+    const QString configPath = getConfigFilePath();
+    if(configPath.isEmpty()) {
+        qWarning() << "Config file path is empty";
+        return false;
+    }
+
+    QFile file(configPath);
     if (!file.open(QIODevice::ReadOnly)) {
-        qDebug() << "Could not open config file for reading";
-        return;
+        qWarning() << "Could not open config file for reading:" << file.errorString();
+        return false;
     }
 
-    QByteArray data = file.readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
+    const QByteArray jsonData = file.readAll();
+    if(jsonData.isEmpty()) {
+        qWarning() << "Config file is empty";
+        return false;
+    }
+
+    QJsonParseError error;
+    QJsonDocument doc = QJsonDocument::fromJson(jsonData, &error);
     if (doc.isNull()) {
-        qDebug() << "Failed to parse config file";
-        return;
+        qWarning() << "Failed to parse config file:" << error.errorString();
+        return false;
     }
 
-    QJsonObject config = doc.object();
+    config = doc.object();
+    return true;
+}
 
-    // 加载上次选择的提供商
-    lastProvider = config["last_provider"].toString();
-    int index = providerCombo->findText(lastProvider);
-    if (index >= 0) {
-        providerCombo->setCurrentIndex(index);
+QString Config::getLastProviderName()
+{
+    return config_[KEY_LAST_PROVIDER].toString();
+}
+
+QString Config::getIpv4RecordName() {
+    return config_["ipv4_record"].toString();
+}
+
+QString Config::getIpv6RecordName() {
+    return config_["ipv6_record"].toString();
+}
+
+bool Config::getProvider(QJsonObject &provider, QString &provider_name)
+{
+    if(!config_.contains("providers")) {
+        return false;
+    }
+    provider = config_["providers"].toObject();
+    return true;
+}
+
+bool Config::saveConfig(const QJsonObject &config) {
+    // 保存到文件
+    QJsonDocument doc(config);
+    QFile file(getConfigFilePath());
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning() << "Could not save configuration file.";
+        return false;
     }
 
-    // 加载各提供商的配置
-    if (config.contains("providers")) {
-        QJsonObject providers = config["providers"].toObject();
-
-        // Cloudflare
-        if (providers.contains("Cloudflare")) {
-            provide_config = providers["Cloudflare"].toObject();
-            // cfApiKey->setText(cf["api_key"].toString());
-            // cfZoneId->setText(cf["zone_id"].toString());
-            // cfDomain->setText(cf["domain"].toString());
-        }
-
-        // Aliyun
-        if (providers.contains("Aliyun")) {
-            provide_config = providers["Aliyun"].toObject();
-            // aliyunAccessKey->setText(aliyun["access_key"].toString());
-            // aliyunSecretKey->setText(aliyun["secret_key"].toString());
-            // aliyunDomain->setText(aliyun["domain"].toString());
-        }
-
-        // DNSPod
-        if (providers.contains("DNSPod")) {
-            provide_config = providers["DNSPod"].toObject();
-            // dnspodToken->setText(dnspod["token"].toString());
-            // dnspodDomain->setText(dnspod["domain"].toString());
-        }
-
-        // DuckDNS
-        if (providers.contains("DuckDNS")) {
-            provide_config = providers["DuckDNS"].toObject();
-            // duckdnsToken->setText(duckdns["token"].toString());
-            // duckdnsDomain->setText(duckdns["domain"].toString());
-        }
-    }
+    file.write(doc.toJson());
+    qInfo() << "Configuration saved successfully.";
+    return true;
 }
